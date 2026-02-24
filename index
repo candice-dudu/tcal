@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>旅費輕鬆記 | 日系極簡分帳小工具</title>
+    
+    <!-- iPhone 加入主畫面後的圖示設定 -->
+    <link rel="apple-touch-icon" href="./cal.png">
+    <!-- 讓網頁以全螢幕 App 模式開啟 (隱藏網址列) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <!-- 設定頂部狀態欄顏色 (透明或與背景色融合) -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- App 在主畫面顯示的名稱 -->
+    <meta name="apple-mobile-web-app-title" content="旅費輕鬆記">
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        beige: {
+                            DEFAULT: '#FEF8EA',
+                            dark: '#EBE4D5'
+                        },
+                        primary: '#85A389', 
+                        primaryDark: '#708E74',
+                        textMain: '#4A4A4A',
+                        textSub: '#9CA3AF',
+                        danger: '#E78895'
+                    },
+                    boxShadow: {
+                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #FEF8EA;
+            color: #4A4A4A;
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
+        }
+        /* 針對 iOS 全螢幕模式的安全區域調整 */
+        header {
+            padding-top: env(safe-area-inset-top, 3rem);
+        }
+        nav {
+            padding-bottom: env(safe-area-inset-bottom, 1rem);
+            height: calc(5rem + env(safe-area-inset-bottom, 0px));
+        }
+        .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom, 1rem);
+        }
+        /* 隱藏捲軸但保持可捲動 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* 動畫過渡 */
+        .modal-enter-active, .modal-leave-active {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .modal-enter-from, .modal-leave-to {
+            opacity: 0;
+            transform: translateY(100%);
+        }
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.3s ease;
+        }
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body class="antialiased overflow-hidden">
+    <div id="app" class="max-w-md mx-auto h-[100dvh] bg-beige relative shadow-xl overflow-hidden flex flex-col">
+        
+        <!-- 載入中遮罩 -->
+        <transition name="fade">
+            <div v-if="isLoadingData" class="fixed inset-0 bg-beige z-[100] flex flex-col items-center justify-center">
+                <svg class="animate-spin h-8 w-8 text-primary mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-textMain font-medium text-sm">讀取資料中...</span>
+            </div>
+        </transition>
+
+        <!-- 頂部導航列 -->
+        <header class="pb-4 px-6 flex justify-between items-center z-10 sticky top-0 bg-beige bg-opacity-90 backdrop-blur-sm">
+            <div class="flex items-center gap-2">
+                <h1 class="text-xl font-bold tracking-wider text-textMain">{{ tabTitles[activeTab] }}</h1>
+                <!-- 儲存狀態提示 -->
+                <span v-if="syncStatus" class="text-[10px] px-2 py-0.5 rounded-full bg-white text-textSub shadow-sm border border-gray-100">{{ syncStatus }}</span>
+            </div>
+            <button @click="confirmClearAll" class="p-2 rounded-full text-textSub hover:text-danger hover:bg-red-50 transition">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+            </button>
+        </header>
+
+        <!-- 主要內容區域 -->
+        <main class="flex-1 overflow-y-auto no-scrollbar px-6 pb-28">
+            
+            <!-- 1. 出席資料 (Participants) -->
+            <div v-show="activeTab === 'participants'" class="space-y-6">
+                <div class="bg-white p-6 rounded-3xl shadow-soft">
+                    <label class="block text-sm font-medium text-textSub mb-2">出席人數</label>
+                    <select v-model="numPeople" @change="updatePeopleList" class="w-full bg-beige-dark bg-opacity-30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary appearance-none text-lg">
+                        <option v-for="n in 9" :key="n" :value="n+1">{{ n+1 }} 人</option>
+                    </select>
+                </div>
+
+                <div class="bg-white p-6 rounded-3xl shadow-soft space-y-4">
+                    <h2 class="text-sm font-medium text-textSub mb-4">輸入出席者名稱</h2>
+                    <div v-for="(person, index) in people" :key="index" class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <span class="text-primary font-bold">{{ index + 1 }}</span>
+                        </div>
+                        <input type="text" v-model="people[index]" :placeholder="'朋友 ' + (index + 1)" class="w-full bg-beige-dark bg-opacity-30 rounded-xl pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. 行程公費 (Shared Expenses) -->
+            <div v-show="activeTab === 'shared'" class="space-y-6">
+                <div class="bg-white p-6 rounded-3xl shadow-soft">
+                    <h2 class="text-sm font-medium text-textSub mb-2">總公費花費</h2>
+                    <div v-if="Object.keys(sharedTotals).length === 0" class="text-2xl font-bold text-gray-300">0.00</div>
+                    <div v-else class="space-y-2">
+                        <div v-for="(total, currency) in sharedTotals" :key="currency" class="flex justify-between items-end">
+                            <span class="text-sm text-textSub">{{ currency }}</span>
+                            <span class="text-2xl font-bold text-primary">{{ formatMoney(total) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <div v-if="shared.length === 0" class="text-center py-10 text-textSub text-sm">
+                        尚未有任何記帳，按右下方 + 號新增吧！
+                    </div>
+                    <div v-for="item in sortedShared" :key="item.id" class="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center relative overflow-hidden group">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-full bg-beige flex items-center justify-center text-primary text-sm font-bold">
+                                {{ getCategoryIcon(item.category) }}
+                            </div>
+                            <div>
+                                <div class="font-medium text-textMain">{{ item.name }}</div>
+                                <div class="text-xs text-textSub mt-0.5">{{ item.date }} · {{ item.payer }} 付款 ({{ item.paymentMethod }})</div>
+                            </div>
+                        </div>
+                        <div class="text-right flex flex-col items-end">
+                            <div class="font-bold text-textMain">{{ item.currency }} {{ formatMoney(item.amount) }}</div>
+                            <button @click="deleteItem('shared', item.id)" class="text-xs text-danger mt-1 p-1 -mr-1">刪除</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. 分擔計算 (Split) -->
+            <div v-show="activeTab === 'split'" class="space-y-6">
+                <div v-if="!hasSharedData" class="text-center py-20 text-textSub">
+                    <div class="mb-4 text-4xl">🧮</div>
+                    <p>需要先在「公費」加入項目才能計算喔！</p>
+                </div>
+                
+                <div v-else v-for="(data, currency) in splitData" :key="currency" class="bg-white p-6 rounded-3xl shadow-soft">
+                    <div class="flex justify-between items-center mb-6 pb-4 border-b border-beige-dark border-opacity-50">
+                        <div class="font-bold text-lg">{{ currency }} 結算</div>
+                        <div class="text-sm text-textSub">總額: {{ formatMoney(data.total) }}<br>平均: {{ formatMoney(data.average) }}/人</div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div v-for="person in data.details" :key="person.name" class="flex justify-between items-center">
+                            <div>
+                                <div class="font-medium text-textMain">{{ person.name }}</div>
+                                <div class="text-xs text-textSub">已代付: {{ formatMoney(person.paid) }}</div>
+                            </div>
+                            <div class="text-right">
+                                <span v-if="Math.abs(person.balance) < 0.01" class="text-sm text-textSub bg-beige px-3 py-1 rounded-full">無須收付</span>
+                                <span v-else-if="person.balance > 0" class="text-sm text-primary font-bold bg-green-50 px-3 py-1 rounded-full">
+                                    需收回 +{{ formatMoney(person.balance) }}
+                                </span>
+                                <span v-else class="text-sm text-danger font-bold bg-red-50 px-3 py-1 rounded-full">
+                                    需補回 {{ formatMoney(Math.abs(person.balance)) }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. 個人支出 (Personal) -->
+            <div v-show="activeTab === 'personal'" class="space-y-6">
+                <div class="bg-white p-6 rounded-3xl shadow-soft">
+                    <h2 class="text-sm font-medium text-textSub mb-2">總個人支出</h2>
+                    <div v-if="Object.keys(personalTotals).length === 0" class="text-2xl font-bold text-gray-300">0.00</div>
+                    <div v-else class="space-y-2">
+                        <div v-for="(total, currency) in personalTotals" :key="currency" class="flex justify-between items-end">
+                            <span class="text-sm text-textSub">{{ currency }}</span>
+                            <span class="text-2xl font-bold text-textMain">{{ formatMoney(total) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <div v-if="personal.length === 0" class="text-center py-10 text-textSub text-sm">
+                        尚未有任何個人花費。
+                    </div>
+                    <div v-for="item in sortedPersonal" :key="item.id" class="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center group">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-full bg-beige flex items-center justify-center text-textMain text-sm font-bold">
+                                {{ getCategoryIcon(item.category) }}
+                            </div>
+                            <div>
+                                <div class="font-medium text-textMain">{{ item.name }}</div>
+                                <div class="text-xs text-textSub mt-0.5">{{ item.date }}</div>
+                            </div>
+                        </div>
+                        <div class="text-right flex flex-col items-end">
+                            <div class="font-bold text-textMain">{{ item.currency }} {{ formatMoney(item.amount) }}</div>
+                            <button @click="deleteItem('personal', item.id)" class="text-xs text-danger mt-1 p-1 -mr-1">刪除</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- 浮動新增按鈕 (FAB) -->
+        <button v-show="activeTab === 'shared' || activeTab === 'personal'" 
+                @click="openAddModal"
+                class="absolute bottom-24 right-6 w-14 h-14 bg-primary text-white rounded-full shadow-lg flex items-center justify-center hover:bg-primaryDark transition transform active:scale-95 z-20">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+
+        <!-- 底部導航 -->
+        <nav class="absolute bottom-0 w-full bg-white border-t border-gray-100 flex justify-around items-center pt-2 px-2 z-20 rounded-t-3xl shadow-[0_-4px_20px_rgba(0,0,0,0.02)] pb-safe">
+            <button @click="activeTab = 'participants'" class="flex flex-col items-center p-2 w-16 transition-colors" :class="activeTab === 'participants' ? 'text-primary' : 'text-textSub'">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                <span class="text-[10px] font-medium">同行</span>
+            </button>
+            <button @click="activeTab = 'shared'" class="flex flex-col items-center p-2 w-16 transition-colors" :class="activeTab === 'shared' ? 'text-primary' : 'text-textSub'">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                <span class="text-[10px] font-medium">公費</span>
+            </button>
+            <button @click="activeTab = 'split'" class="flex flex-col items-center p-2 w-16 transition-colors" :class="activeTab === 'split' ? 'text-primary' : 'text-textSub'">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><circle cx="12" cy="12" r="10"></circle><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"></path><line x1="12" y1="18" x2="12" y2="22"></line><line x1="12" y1="2" x2="12" y2="6"></line></svg>
+                <span class="text-[10px] font-medium">拆帳</span>
+            </button>
+            <button @click="activeTab = 'personal'" class="flex flex-col items-center p-2 w-16 transition-colors" :class="activeTab === 'personal' ? 'text-primary' : 'text-textSub'">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-1"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
+                <span class="text-[10px] font-medium">個人</span>
+            </button>
+        </nav>
+
+        <!-- 新增記帳 Modal -->
+        <transition name="fade">
+            <div v-if="showModal" class="fixed inset-0 bg-black bg-opacity-30 z-40" @click="closeModal"></div>
+        </transition>
+        <transition name="modal">
+            <div v-if="showModal" class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white rounded-t-3xl z-50 p-6 shadow-2xl pb-safe flex flex-col" style="max-height: 90vh;">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-bold">{{ activeTab === 'shared' ? '新增公費' : '新增個人支出' }}</h3>
+                    <button @click="closeModal" class="p-2 text-textSub bg-beige rounded-full"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                </div>
+
+                <div class="overflow-y-auto no-scrollbar space-y-4 pb-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-textSub mb-1 ml-1">類別</label>
+                            <select v-model="form.category" class="w-full bg-beige bg-opacity-50 rounded-xl px-4 py-3 outline-none focus:bg-beige appearance-none">
+                                <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-textSub mb-1 ml-1">日期</label>
+                            <input type="date" v-model="form.date" class="w-full bg-beige bg-opacity-50 rounded-xl px-4 py-3 outline-none focus:bg-beige appearance-none text-sm">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs text-textSub mb-1 ml-1">項目名稱</label>
+                        <input type="text" v-model="form.name" placeholder="例如：晚餐、的士" class="w-full bg-beige bg-opacity-50 rounded-xl px-4 py-3 outline-none focus:bg-beige">
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="col-span-1">
+                            <label class="block text-xs text-textSub mb-1 ml-1">貨幣</label>
+                            <select v-model="form.currency" class="w-full bg-beige bg-opacity-50 rounded-xl px-3 py-3 outline-none focus:bg-beige appearance-none">
+                                <option v-for="cur in currencies" :key="cur" :value="cur">{{ cur }}</option>
+                            </select>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-xs text-textSub mb-1 ml-1">金額</label>
+                            <input type="number" v-model.number="form.amount" placeholder="0.00" step="0.01" min="0" class="w-full bg-beige bg-opacity-50 rounded-xl px-4 py-3 outline-none focus:bg-beige font-bold text-lg text-primary">
+                        </div>
+                    </div>
+
+                    <template v-if="activeTab === 'shared'">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs text-textSub mb-1 ml-1">付款方式</label>
+                                <select v-model="form.paymentMethod" class="w-full bg-beige bg-opacity-50 rounded-xl px-4 py-3 outline-none focus:bg-beige appearance-none">
+                                    <option v-for="pm in payMethods" :key="pm" :value="pm">{{ pm }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-textSub mb-1 ml-1">誰付款？</label>
+                                <select v-model="form.payer" class="w-full bg-beige bg-opacity-50 rounded-xl px-4 py-3 outline-none focus:bg-beige appearance-none">
+                                    <option v-for="person in validPeople" :key="person" :value="person">{{ person }}</option>
+                                </select>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                
+                <button @click="saveExpense" class="mt-4 w-full bg-primary text-white font-bold py-4 rounded-xl shadow-md hover:bg-primaryDark transition disabled:opacity-50 disabled:cursor-not-allowed" :disabled="!isFormValid">
+                    儲存記錄
+                </button>
+            </div>
+        </transition>
+
+        <!-- 清除確認 Modal -->
+        <transition name="fade">
+            <div v-if="showClearConfirm" class="fixed inset-0 bg-black bg-opacity-40 z-[60] flex items-center justify-center p-4">
+                <div class="bg-white rounded-3xl p-6 w-full max-w-xs text-center shadow-2xl">
+                    <div class="w-16 h-16 bg-red-50 text-danger rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11V17"></path><path d="M14 11V17"></path><path d="M4 7H20"></path><path d="M6 7H12H18V18C18 19.6569 16.6569 21 15 21H9C7.34315 21 6 19.6569 6 18V7Z"></path><path d="M9 5C9 3.89543 9.89543 3 11 3H13C14.1046 3 15 3.89543 15 5V7H9V5Z"></path></svg>
+                    </div>
+                    <h3 class="text-lg font-bold mb-2">確定要清除所有資料？</h3>
+                    <p class="text-sm text-textSub mb-6">這將會刪除所有已輸入的朋友名單及記帳紀錄，且無法復原。</p>
+                    <div class="flex gap-3">
+                        <button @click="showClearConfirm = false" class="flex-1 py-3 rounded-xl bg-beige text-textMain font-medium">取消</button>
+                        <button @click="clearAllData" class="flex-1 py-3 rounded-xl bg-danger text-white font-medium shadow-md">一鍵清除</button>
+                    </div>
+                </div>
+            </div>
+        </transition>
+
+    </div>
+
+    <!-- 採用 module 的形式載入 Vue 與 Firebase 儲存模組 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const { createApp, ref, computed, watch, onMounted } = window.Vue;
+
+        // ----------------------------------------------------
+        // 針對 iPhone 主畫面 (離線/本機) 儲存用的 IndexedDB 模組
+        // ----------------------------------------------------
+        const DB_NAME = 'TravelAppDB';
+        const STORE_NAME = 'travelStore';
+
+        const initIndexedDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onerror = (e) => reject(e);
+                request.onsuccess = (e) => resolve(e.target.result);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME);
+                    }
+                };
+            });
+        };
+
+        const saveToIDB = async (key, data) => {
+            try {
+                const db = await initIndexedDB();
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                store.put(data, key);
+            } catch (e) {
+                console.error("本機儲存失敗:", e);
+            }
+        };
+
+        const loadFromIDB = async (key) => {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    const db = await initIndexedDB();
+                    const tx = db.transaction(STORE_NAME, 'readonly');
+                    const store = tx.objectStore(STORE_NAME);
+                    const request = store.get(key);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject();
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        };
+
+        // ----------------------------------------------------
+        // Vue 應用程式主邏輯
+        // ----------------------------------------------------
+        createApp({
+            setup() {
+                const today = new Date().toISOString().split('T')[0];
+
+                const activeTab = ref('participants');
+                const tabTitles = {
+                    participants: '同行朋友',
+                    shared: '公費記帳',
+                    split: '分擔計算',
+                    personal: '個人記帳'
+                };
+
+                const numPeople = ref(2);
+                const people = ref(['朋友 1', '朋友 2']);
+                
+                const currencies = ['HKD', 'JPY', 'KRW', 'THB', 'TWD', 'CNY'];
+                const categories = ['交通', '飲食', '住宿', '門票', '購物', '其他'];
+                const payMethods = ['現金', '信用卡'];
+
+                const shared = ref([]);
+                const personal = ref([]);
+
+                const showModal = ref(false);
+                const showClearConfirm = ref(false);
+
+                // 儲存狀態相關 (供畫面載入和同步狀態提示使用)
+                const isLoadingData = ref(true);
+                const syncStatus = ref('');
+                const cloudUser = ref(null);
+                const cloudDb = ref(null);
+                const useCloudSync = typeof __firebase_config !== 'undefined' && __firebase_config;
+
+                // 表單狀態
+                const initialForm = () => ({
+                    id: null,
+                    category: '飲食',
+                    name: '',
+                    date: today,
+                    currency: 'HKD',
+                    amount: null,
+                    paymentMethod: '現金',
+                    payer: ''
+                });
+                const form = ref(initialForm());
+
+                // App 初始化與讀取資料
+                onMounted(async () => {
+                    // 1. 如果有雲端環境參數，使用 Firestore 雲端同步
+                    if (useCloudSync) {
+                        try {
+                            const firebaseConfig = JSON.parse(__firebase_config);
+                            const app = initializeApp(firebaseConfig);
+                            const auth = getAuth(app);
+                            cloudDb.value = getFirestore(app);
+
+                            const initAuth = async () => {
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                    await signInWithCustomToken(auth, __initial_auth_token);
+                                } else {
+                                    await signInAnonymously(auth);
+                                }
+                            };
+                            await initAuth();
+
+                            onAuthStateChanged(auth, (user) => {
+                                cloudUser.value = user;
+                                if (user) {
+                                    syncStatus.value = '同步中...';
+                                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-travel';
+                                    const docRef = doc(cloudDb.value, 'artifacts', appId, 'users', user.uid, 'travelData', 'main');
+                                    
+                                    onSnapshot(docRef, (snapshot) => {
+                                        if (snapshot.exists()) {
+                                            const data = snapshot.data();
+                                            numPeople.value = data.numPeople || 2;
+                                            people.value = data.people || ['朋友 1', '朋友 2'];
+                                            shared.value = data.shared || [];
+                                            personal.value = data.personal || [];
+                                        }
+                                        isLoadingData.value = false;
+                                        syncStatus.value = '雲端已同步';
+                                    }, (error) => {
+                                        console.error("讀取失敗:", error);
+                                        isLoadingData.value = false;
+                                        syncStatus.value = '連線失敗';
+                                    });
+                                } else {
+                                    isLoadingData.value = false;
+                                }
+                            });
+                        } catch (e) {
+                            console.error("雲端服務初始化失敗:", e);
+                            isLoadingData.value = false;
+                            syncStatus.value = '服務異常';
+                        }
+                    } 
+                    // 2. 若為 PWA 離線模式 (例如 iPhone 主畫面)，使用 IndexedDB
+                    else {
+                        syncStatus.value = '本機已儲存';
+                        try {
+                            const data = await loadFromIDB('mainData');
+                            if (data) {
+                                numPeople.value = data.numPeople || 2;
+                                people.value = data.people || ['朋友 1', '朋友 2'];
+                                shared.value = data.shared || [];
+                                personal.value = data.personal || [];
+                            }
+                        } catch (e) {
+                            console.error("載入本機資料失敗:", e);
+                        }
+                        isLoadingData.value = false;
+                    }
+                });
+
+                // 監聽資料變化，並自動觸發儲存 (Auto-save)
+                watch([numPeople, people, shared, personal], async () => {
+                    // 若還在初始載入階段則不儲存，以免空資料覆寫
+                    if (isLoadingData.value) return;
+
+                    const dataToSave = {
+                        numPeople: numPeople.value,
+                        people: people.value,
+                        // 使用 JSON deep copy 防止 Vue Proxy 代理產生問題
+                        shared: JSON.parse(JSON.stringify(shared.value)), 
+                        personal: JSON.parse(JSON.stringify(personal.value))
+                    };
+
+                    if (useCloudSync && cloudUser.value && cloudDb.value) {
+                        syncStatus.value = '同步中...';
+                        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-travel';
+                        const docRef = doc(cloudDb.value, 'artifacts', appId, 'users', cloudUser.value.uid, 'travelData', 'main');
+                        setDoc(docRef, dataToSave, { merge: true })
+                            .then(() => syncStatus.value = '雲端已同步')
+                            .catch(() => syncStatus.value = '同步失敗');
+                    } else {
+                        // PWA 離線儲存
+                        syncStatus.value = '儲存中...';
+                        await saveToIDB('mainData', dataToSave);
+                        syncStatus.value = '本機已儲存';
+                    }
+                }, { deep: true });
+
+                const updatePeopleList = () => {
+                    const currentLen = people.value.length;
+                    const newLen = parseInt(numPeople.value);
+                    if (newLen > currentLen) {
+                        for (let i = currentLen; i < newLen; i++) {
+                            people.value.push(`朋友 ${i + 1}`);
+                        }
+                    } else if (newLen < currentLen) {
+                        people.value = people.value.slice(0, newLen);
+                    }
+                };
+
+                const validPeople = computed(() => {
+                    return people.value.map((p, i) => p.trim() || `朋友 ${i+1}`);
+                });
+
+                const calcTotals = (items) => {
+                    return items.reduce((acc, item) => {
+                        if (!acc[item.currency]) acc[item.currency] = 0;
+                        acc[item.currency] += Number(item.amount);
+                        return acc;
+                    }, {});
+                };
+
+                const sharedTotals = computed(() => calcTotals(shared.value));
+                const personalTotals = computed(() => calcTotals(personal.value));
+                const sortedShared = computed(() => [...shared.value].reverse());
+                const sortedPersonal = computed(() => [...personal.value].reverse());
+                const hasSharedData = computed(() => shared.value.length > 0);
+
+                const splitData = computed(() => {
+                    if (!hasSharedData.value) return {};
+
+                    const result = {};
+                    const currsPresent = new Set(shared.value.map(item => item.currency));
+
+                    currsPresent.forEach(currency => {
+                        let total = 0;
+                        const paidMap = {};
+                        validPeople.value.forEach(p => paidMap[p] = 0);
+
+                        shared.value.forEach(item => {
+                            if (item.currency === currency) {
+                                total += item.amount;
+                                const actualPayer = paidMap[item.payer] !== undefined ? item.payer : validPeople.value[0];
+                                paidMap[actualPayer] += item.amount;
+                            }
+                        });
+
+                        if (total > 0) {
+                            const average = total / validPeople.value.length;
+                            const details = validPeople.value.map(person => {
+                                const paid = paidMap[person];
+                                const balance = paid - average; 
+                                return {
+                                    name: person,
+                                    paid: paid,
+                                    balance: balance
+                                };
+                            });
+
+                            result[currency] = { total, average, details };
+                        }
+                    });
+
+                    return result;
+                });
+
+                const openAddModal = () => {
+                    form.value = initialForm();
+                    form.value.payer = validPeople.value[0];
+                    showModal.value = true;
+                };
+
+                const closeModal = () => {
+                    showModal.value = false;
+                };
+
+                const isFormValid = computed(() => {
+                    return form.value.name.trim() !== '' && form.value.amount > 0;
+                });
+
+                const saveExpense = () => {
+                    if (!isFormValid.value) return;
+
+                    const newItem = {
+                        ...form.value,
+                        id: Date.now(),
+                        amount: Number(form.value.amount)
+                    };
+
+                    if (activeTab.value === 'shared') {
+                        newItem.payer = validPeople.value.includes(newItem.payer) ? newItem.payer : validPeople.value[0];
+                        shared.value.push(newItem);
+                    } else {
+                        personal.value.push(newItem);
+                    }
+                    closeModal();
+                };
+
+                const deleteItem = (type, id) => {
+                    if (type === 'shared') {
+                        shared.value = shared.value.filter(i => i.id !== id);
+                    } else {
+                        personal.value = personal.value.filter(i => i.id !== id);
+                    }
+                };
+
+                const confirmClearAll = () => {
+                    showClearConfirm.value = true;
+                };
+
+                const clearAllData = () => {
+                    numPeople.value = 2;
+                    people.value = ['朋友 1', '朋友 2'];
+                    shared.value = [];
+                    personal.value = [];
+                    activeTab.value = 'participants';
+                    showClearConfirm.value = false;
+                };
+
+                const formatMoney = (val) => {
+                    return Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                };
+
+                const getCategoryIcon = (cat) => {
+                    const icons = {
+                        '交通': '🚌',
+                        '飲食': '🥢',
+                        '住宿': '🛏️',
+                        '門票': '🎫',
+                        '購物': '🛍️',
+                        '其他': '✨'
+                    };
+                    return icons[cat] || '✨';
+                };
+
+                return {
+                    activeTab, tabTitles, isLoadingData, syncStatus,
+                    numPeople, people, updatePeopleList, validPeople,
+                    currencies, categories, payMethods,
+                    shared, personal,
+                    sharedTotals, personalTotals, sortedShared, sortedPersonal,
+                    splitData, hasSharedData,
+                    showModal, form, openAddModal, closeModal, isFormValid, saveExpense, deleteItem,
+                    showClearConfirm, confirmClearAll, clearAllData,
+                    formatMoney, getCategoryIcon
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
