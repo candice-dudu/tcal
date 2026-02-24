@@ -344,7 +344,7 @@
                 };
 
                 const numPeople = ref(2);
-                const people = ref(['A', 'B']);
+                const people = ref(['', '']);
                 
                 const currencies = ['HKD', 'JPY', 'KRW', 'THB', 'TWD', 'CNY'];
                 const categories = ['交通', '飲食', '住宿', '門票', '購物', '其他'];
@@ -375,7 +375,7 @@
                     const newLen = parseInt(numPeople.value);
                     if (newLen > currentLen) {
                         for (let i = currentLen; i < newLen; i++) {
-                            people.value.push(`朋友 ${i + 1}`);
+                            people.value.push('');
                         }
                     } else if (newLen < currentLen) {
                         people.value = people.value.slice(0, newLen);
