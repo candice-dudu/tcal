@@ -4,15 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>旅費輕鬆記 | 日系極簡分帳小工具</title>
+
 <!-- iOS 加入主畫面 Icon -->
 <link rel="apple-touch-icon" href="cal.png">
 
 <!-- iOS PWA 基本設定 -->
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="旅費輕鬆記">
-    
-<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -42,6 +43,7 @@
             background-color: #FEF8EA;
             color: #4A4A4A;
             -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
         }
         /* 隱藏捲軸但保持可捲動 */
         .no-scrollbar::-webkit-scrollbar {
@@ -67,8 +69,8 @@
         }
     </style>
 </head>
-<body class="antialiased">
-    <div id="app" class="max-w-md mx-auto min-h-screen bg-beige relative pb-20 shadow-xl overflow-hidden flex flex-col">
+<body class="antialiased overflow-hidden">
+    <div id="app" class="max-w-md mx-auto h-[100dvh] bg-beige relative shadow-xl overflow-hidden flex flex-col">
         
         <!-- 頂部導航列 -->
         <header class="pt-12 pb-4 px-6 flex justify-between items-center z-10 sticky top-0 bg-beige bg-opacity-90 backdrop-blur-sm">
@@ -342,7 +344,7 @@
                 };
 
                 const numPeople = ref(2);
-                const people = ref(['朋友 1', '朋友 2']);
+                const people = ref(['A', 'B']);
                 
                 const currencies = ['HKD', 'JPY', 'KRW', 'THB', 'TWD', 'CNY'];
                 const categories = ['交通', '飲食', '住宿', '門票', '購物', '其他'];
@@ -500,7 +502,7 @@
 
                 const clearAllData = () => {
                     numPeople.value = 2;
-                    people.value = ['朋友 1', '朋友 2'];
+                    people.value = ['A', 'B'];
                     shared.value = [];
                     personal.value = [];
                     activeTab.value = 'participants';
@@ -524,8 +526,6 @@
                     };
                     return icons[cat] || '✨';
                 };
-
-
         //localStorage 載入
         onMounted(() => {
             const saved = localStorage.getItem(STORAGE_KEY);
